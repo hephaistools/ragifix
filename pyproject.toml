@@ -1,0 +1,32 @@
+[project]
+name = "ragifix"
+version = "0.1.0"
+description = "Service RAG auto-porté : ingestion, suppression et interrogation de documents via API HTTP locale."
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dependencies = [
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "tiktoken>=0.7",
+    "pymupdf4llm>=0.0.17",
+    "pymupdf>=1.24",
+    "docling>=2.0",
+    "fastembed>=0.3",
+    "httpx>=0.27",
+    "pymilvus[milvus_lite]>=2.4",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.scripts]
+ragifix = "ragifix.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ragifix"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/ragifix", "pyproject.toml", "README.md"]

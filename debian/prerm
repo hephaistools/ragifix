@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+PACKAGE=ragifix
+
+case "$1" in
+  remove|purge)
+    # Le venv est construit au postinst (hors du manifeste dpkg) : il faut
+    # le supprimer explicitement, dpkg ne le fera pas tout seul.
+    rm -rf "/opt/$PACKAGE/venv"
+    rm -f "/usr/bin/$PACKAGE"
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

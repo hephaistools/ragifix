@@ -1,0 +1,40 @@
+[Unit]
+Description=ragifix - service RAG auto-porté (ingestion + interrogation via API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ragifix
+Group=ragifix
+
+EnvironmentFile=/etc/ragifix/ragifix.env
+
+ExecStart=/opt/ragifix/venv/bin/ragifix --config /etc/ragifix/config.yaml
+Restart=on-failure
+RestartSec=10
+
+# --- Durcissement : moindre privilège ---------------------------------
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+
+# Registre SQLite + base Milvus Lite (si mode=lite) : seul ce process doit
+# y écrire. Ne JAMAIS dupliquer cette unité (voir /opt/ragifix/venv et le
+# README) ni la faire tourner avec plusieurs workers : Milvus Lite ne
+# supporte qu'un seul process ouvrant le fichier à la fois.
+ReadWritePaths=/var/lib/ragifix
+
+[Install]
+WantedBy=multi-user.target
