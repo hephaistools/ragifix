@@ -29,11 +29,7 @@ vectorstore:
   backend: milvus
 
   milvus:
-    # IMPORTANT : en mode "lite", ce fichier ne peut être ouvert que par un
-    # SEUL process à la fois. Ne jamais lancer deux instances de ragifix
-    # (ni plusieurs workers) pointant vers le même lite_path. Pour monter
-    # en charge / permettre plusieurs clients concurrents, utiliser
-    # mode=server avec un vrai serveur Milvus (host/port).
+    # IMPORTANT : en mode "lite", ce fichier ne peut être ouvert que par un SEUL process à la fois. Ne jamais lancer deux instances de ragifix pointant vers le même lite_path. Si besoin, utiliser mode=server avec un vrai serveur Milvus (host/port).
     mode: lite
     lite_path: /var/lib/ragifix/milvus_lite.db
     # host: localhost
@@ -55,5 +51,4 @@ api:
 
 logging:
   level: INFO                     # DEBUG | INFO | WARNING | ERROR
-  # Sortie toujours sur stdout : capté nativement par journald (systemd) ou
-  # par le driver de logs du conteneur (Docker).
+  # Sortie toujours sur stdout : capté nativement par journald (systemd) ou par le driver de logs du conteneur (Docker).

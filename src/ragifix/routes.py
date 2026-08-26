@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -56,6 +57,23 @@ class QueryResultItem(BaseModel):
 
 class QueryResponse(BaseModel):
     results: list[QueryResultItem]
+
+
+class SourceResponse(BaseModel):
+    name: str
+    description: str
+    enabled: bool
+    updated_at: str
+
+
+class SourcesListResponse(BaseModel):
+    sources: list[SourceResponse]
+
+
+class SetSourceRequest(BaseModel):
+    name: str
+    description: str = ""
+    enabled: bool = True
 
 
 def _to_response(record) -> DocumentResponse:
@@ -170,5 +188,26 @@ def build_router(service: RagifixService, auth: TokenAuth, default_top_k: int, m
     @router.get("/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    @router.post("/sources", dependencies=[Depends(auth)])
+    async def set_sources(body: list[SetSourceRequest]) -> list[SourceResponse]:
+        try:
+            results = []
+            for src in body:
+                await service.set_source(src.name, src.description, src.enabled)
+                results.append(SourceResponse(name=src.name, description=src.description, enabled=src.enabled, updated_at=datetime.now(timezone.utc).isoformat()))
+            return results
+        except Exception:
+            logger.exception("Échec de la mise à jour des sources")
+            raise HTTPException(status_code=500, detail="Erreur interne lors de la mise à jour des sources")
+
+    @router.get("/sources", response_model=SourcesListResponse, dependencies=[Depends(auth)])
+    async def get_sources() -> SourcesListResponse:
+        try:
+            sources = await service.get_sources()
+            return SourcesListResponse(sources=[SourceResponse(**s) for s in sources])
+        except Exception:
+            logger.exception("Échec de la récupération des sources")
+            raise HTTPException(status_code=500, detail="Erreur interne lors de la récupération des sources")
 
     return router

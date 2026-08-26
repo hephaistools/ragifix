@@ -6,6 +6,7 @@ __pycache__/
 .eggs/
 build/
 dist/
+artifact/
 
 # Configuration et secrets réels (ne jamais committer)
 *.env

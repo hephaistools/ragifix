@@ -120,6 +120,14 @@ class RagifixService:
     async def list_documents(self, prefix: str | None = None) -> list[DocumentRecord]:
         return await self._run(self._registry.list, prefix)
 
+    # -- Sources ------------------------------------------------------
+
+    async def set_source(self, name: str, description: str, enabled: bool) -> None:
+        await self._run(self._registry.set_source, name, description, enabled)
+
+    async def get_sources(self) -> list[dict]:
+        return await self._run(self._registry.get_sources)
+
     # -- Cycle de vie ------------------------------------------------------
 
     def shutdown(self) -> None:

@@ -174,3 +174,7 @@ curl -X POST http://127.0.0.1:8421/query \
   plus comparables aux nouvelles requêtes. Ré-appeler `PUT
   /documents/{doc_id}` pour chaque document (idéalement depuis un
   environnement de pré-production dédié) après un tel changement.
+
+## TODO
+
+- [ ] ajouter un filtre basé sur la date des documents.

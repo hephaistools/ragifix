@@ -53,6 +53,8 @@ class MilvusVectorStore:
                 collection_name=collection_name, schema=schema, index_params=index_params
             )
 
+        self._client.load_collection(collection_name=collection_name)
+
     def upsert(self, chunks: list[VectorChunk]) -> None:
         if not chunks:
             return

@@ -45,6 +45,10 @@ class DocumentRegistry(Protocol):
 
     def list(self, prefix: str | None = None) -> list[DocumentRecord]: ...
 
+    def set_source(self, name: str, description: str, enabled: bool) -> None: ...
+
+    def get_sources(self) -> list[dict]: ...
+
     def close(self) -> None: ...
 
 
@@ -73,6 +77,16 @@ class SqliteDocumentRegistry:
                     chunk_ids TEXT NOT NULL,
                     extension TEXT NOT NULL,
                     metadata TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sources (
+                    name TEXT PRIMARY KEY,
+                    description TEXT NOT NULL DEFAULT '',
+                    enabled INTEGER NOT NULL DEFAULT 1,
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -139,6 +153,36 @@ class SqliteDocumentRegistry:
 
     def close(self) -> None:
         self._conn.close()
+
+    def set_source(self, name: str, description: str, enabled: bool) -> None:
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO sources (name, description, enabled, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    description = excluded.description,
+                    enabled = excluded.enabled,
+                    updated_at = excluded.updated_at
+                """,
+                (name, description, 1 if enabled else 0, updated_at),
+            )
+
+    def get_sources(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT name, description, enabled, updated_at FROM sources ORDER BY name"
+            ).fetchall()
+            return [
+                {
+                    "name": row[0],
+                    "description": row[1],
+                    "enabled": bool(row[2]),
+                    "updated_at": row[3],
+                }
+                for row in rows
+            ]
 
 
 def build_registry(backend: str, sqlite_path: str) -> DocumentRegistry:
