@@ -12,6 +12,7 @@ artifact/
 *.env
 !*.env.example
 config.yaml
+TODO.md
 
 # Données persistantes locales
 *.db

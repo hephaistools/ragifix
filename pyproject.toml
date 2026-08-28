@@ -30,3 +30,15 @@ packages = ["src/ragifix"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/ragifix", "pyproject.toml", "README.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "heavy: tests nécessitant un backend réel (fastembed, pymilvus, docling) ou un accès réseau",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
