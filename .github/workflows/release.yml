@@ -30,6 +30,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Fix git safe directory issue
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Execute isolated tests (pytest)
         run: |
           python3 -m venv /tmp/ci-venv
