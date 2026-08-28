@@ -3,139 +3,106 @@ name: Release
 on:
   push:
     tags:
-      - "*"
+      - "v*"
+      - "[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  build-and-release:
     runs-on: ubuntu-latest
+    container: debian:bookworm
+
     steps:
-      - name: Checkout
+      - name: Install base dependencies and GitHub CLI
+        run: |
+          apt-get update
+          apt-get install -y git dpkg-dev debhelper python3 python3-venv python3-pip build-essential curl
+
+          # Installation de la CLI GitHub (gh) pour une gestion native et robuste des releases
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          apt-get update
+          apt-get install -y gh
+
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Execute isolated tests (pytest)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y debhelper dpkg-dev python3 python3-venv python3-pip build-essential
+          python3 -m venv /tmp/ci-venv
+          /tmp/ci-venv/bin/pip install --upgrade pip
+          # Installation du projet et de ses dépendances (hatchling inclus pour PEP517)
+          /tmp/ci-venv/bin/pip install -e . pytest
+          # Note : Si les tests marqués "heavy" (fastembed, docling) timeout en CI, ajouter -m "not heavy"
+          /tmp/ci-venv/bin/pytest
 
-      - name: Gate pytest
+      - name: Validate version consistency
+        id: version_check
         run: |
-          python -m pip install --upgrade pip
-          pip install --no-deps -e .
-          pip install pytest fastapi pydantic pyyaml tiktoken httpx uvicorn
-          pytest
+          # Extraction canonique via dpkg-parsechangelog
+          FULL_VERSION=$(dpkg-parsechangelog -S Version)
+          # Isolation de la version amont (ex: "0.1.0" depuis "0.1.0-1")
+          UPSTREAM_VERSION=$(echo "$FULL_VERSION" | sed 's/-[^-]*$//')
 
-      - name: Extract version from changelog
-        id: version
-        run: |
-          VERSION=$(awk -F'[()]' 'NR==1{print $2}' debian/changelog)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Version (changelog) : $VERSION"
-
-      - name: Verify tag matches changelog version
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
           TAG="${GITHUB_REF#refs/tags/}"
-          TAG="${TAG#v}"
-          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag hors format de version, ignoré : $TAG"
+          TAG_CLEAN="${TAG#v}"
+
+          if [[ ! "$TAG_CLEAN" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::notice::Tag hors format sémantique, ignoré : $TAG"
             exit 0
           fi
-          if [ "$TAG" != "$VERSION" ]; then
-            echo "::error::Le tag '$TAG' ne correspond pas à la version du changelog '$VERSION'"
+
+          if [ "$TAG_CLEAN" != "$UPSTREAM_VERSION" ]; then
+            echo "::error::Incohérence : le tag ($TAG_CLEAN) ne correspond pas à la version amont du changelog ($UPSTREAM_VERSION)."
             exit 1
           fi
-          echo "Version validée : $TAG"
 
-      - name: Build .deb
+          echo "full_version=$FULL_VERSION" >> "$GITHUB_OUTPUT"
+          echo "upstream_version=$UPSTREAM_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build Debian package
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          # Compilation dans le conteneur éphémère (accès réseau requis pour hatchling/PEP517)
+          # -us -uc : omission de la signature GPG (contrainte utilisateur)
           dpkg-buildpackage -us -uc -b
-          echo "Artefact : build-artifacts/ragifix_${VERSION}_all.deb"
-          ls -1 build-artifacts/ragifix_${VERSION}_all.deb
 
-      - name: Create GitHub release and attach .deb
-        env:
-          RELEASE_TAG: "${GITHUB_REF#refs/tags/}"
+          mkdir -p build-artifacts
+          mv ../ragifix_*.deb build-artifacts/
+          mv ../ragifix_*.changes build-artifacts/ 2>/dev/null || true
+          mv ../ragifix_*.buildinfo build-artifacts/ 2>/dev/null || true
+          ls -la build-artifacts/
+
+      - name: Generate Release Notes
         run: |
-          TAG="${RELEASE_TAG#v}"
-          VERSION="${{ steps.version.outputs.version }}"
-          DEB="$(ls -1 build-artifacts/ragifix_${VERSION}_all.deb | head -n1)"
-          echo "Asset : $DEB"
-          echo "Tag : $TAG | Repo : $GITHUB_REPOSITORY"
+          UPSTREAM_VERSION="${{ steps.version_check.outputs.upstream_version }}"
+          # Extraction canonique du corps des modifications
+          CHANGES=$(dpkg-parsechangelog -S Changes)
 
-          # Notes de release extraites du changelog (version courante)
-          python3 - "$VERSION" <<'PY'
-          import sys
-          version = sys.argv[1]
-          entry, capturing = [], False
-          for line in open("debian/changelog", encoding="utf-8").read().splitlines():
-              if line.startswith("ragifix ("):
-                  capturing = f"({version})" in line
-                  continue
-              if capturing:
-                  entry.append(line)
-                  if line.strip().startswith("-- "):
-                      break
-          body = "## " + version + "\n\n" + "\n".join(entry).strip() + "\n"
-          open("release-notes.md", "w", encoding="utf-8").write(body)
-          print("Notes de release :")
-          print(body)
-          PY
+          echo "## Release ${UPSTREAM_VERSION}" > release-notes.md
+          echo "" >> release-notes.md
+          echo "$CHANGES" >> release-notes.md
 
-          # Corps de la release encodé en JSON (échappement sûr via jq)
-          jq -n --arg tag "$TAG" --arg body "$(cat release-notes.md)" \
-            '{tag_name: $tag, name: $tag, draft: false, prerelease: false, body: $body}' \
-            > release-body.json
+      - name: Publish GitHub Release and Upload Asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          FULL_VERSION="${{ steps.version_check.outputs.full_version }}"
+          DEB_FILE=$(ls build-artifacts/ragifix_${FULL_VERSION}_all.deb)
 
-          # Suppression d'une release existante (idempotence : run précédent)
-          EXISTING_ID=$(curl -sSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
-            | jq -r '.id // ""')
-          if [ -n "$EXISTING_ID" ]; then
-            echo "Suppression d'une release existante ($EXISTING_ID)"
-            DELETE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/$EXISTING_ID")
-            if [ "$DELETE_CODE" != "204" ] && [ "$DELETE_CODE" != "404" ]; then
-              echo "::error::Échec de la suppression (HTTP $DELETE_CODE)"
-              exit 1
-            fi
+          # Gestion de l'idempotence : suppression préalable si le tag a déjà une release associée
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release existante détectée. Suppression pour idempotence..."
+            gh release delete "$TAG" --yes
           fi
 
-          # Création de la release
-          RESP=$(curl -sS -w "\n%{http_code}" -X POST \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            --data-binary "@release-body.json" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases")
-          POST_CODE=$(printf '%s' "$RESP" | tail -n1)
-          POST_BODY=$(printf '%s' "$RESP" | sed '$d')
-          if [ "$POST_CODE" = "404" ]; then
-            echo "::error::404 sur la création de release : le commit relâché modifie des fichiers sous .github/workflows/ ; le GITHUB_TOKEN ne peut pas les autoriser. Séparer le commit de bump de version des fichiers de workflow, ou autoriser workflows: write."
-            exit 1
-          fi
-          if [ "$POST_CODE" != "201" ]; then
-            echo "::error::Échec de la création de la release (HTTP $POST_CODE): $POST_BODY"
-            exit 1
-          fi
-          RELEASE_ID=$(printf '%s' "$POST_BODY" | jq -r '.id')
-          echo "Release créée : $RELEASE_ID"
-
-          # Attachement de l'asset .deb
-          UPLOAD_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@${DEB}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/$RELEASE_ID/assets")
-          if [ "$UPLOAD_CODE" != "201" ]; then
-            echo "::error::Échec de l'attachement de l'asset (HTTP $UPLOAD_CODE)"
-            exit 1
-          fi
-          echo "Asset attaché : $DEB"
-          echo "Release : ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          # Création de la release et upload de l'asset
+          gh release create "$TAG" "$DEB_FILE" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            --draft=false \
+            --prerelease=false
