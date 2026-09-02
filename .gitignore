@@ -1,3 +1,7 @@
+# test agents
+results/
+.cursor/
+
 # Environnements Python
 venv/
 __pycache__/
