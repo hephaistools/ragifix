@@ -122,6 +122,8 @@ Toutes les routes sauf `/health` nécessitent l'en-tête `Authorization: Bearer 
 
 `doc_id` accepte `/` et `:`.
 
+`metadata` peut inclure un champ optionnel `origin` — `{"kind": "https"|"file", "uri": "...", "label": "..."}`, le lien ou chemin le plus rapide vers le document source (ex: lien SharePoint, chemin local). S'il est présent, il est renvoyé tel quel, typé, dans le champ `origin` de `DocumentResponse` et de chaque résultat de `POST /query` (`null` sinon).
+
 Exemple :
 
 ```bash

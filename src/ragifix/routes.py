@@ -29,12 +29,24 @@ logger = logging.getLogger(__name__)
 # Schémas
 # --------------------------------------------------------------------------- #
 
+class OriginInfo(BaseModel):
+    """Localisateur le plus rapide pour ouvrir le document source (lien
+    SharePoint, chemin local, etc.) — voir metadata["origin"], normalisé ici
+    en champ de premier niveau pour ne pas obliger les clients à connaître la
+    structure interne du blob metadata."""
+
+    kind: str
+    uri: str
+    label: str = ""
+
+
 class DocumentResponse(BaseModel):
     doc_id: str
     extension: str
     chunk_count: int
     metadata: dict
     updated_at: str
+    origin: OriginInfo | None = None
 
 
 class DocumentListResponse(BaseModel):
@@ -53,6 +65,7 @@ class QueryResultItem(BaseModel):
     text: str
     score: float
     metadata: dict
+    origin: OriginInfo | None = None
 
 
 class QueryResponse(BaseModel):
@@ -76,6 +89,16 @@ class SetSourceRequest(BaseModel):
     enabled: bool = True
 
 
+def _extract_origin(metadata: dict) -> OriginInfo | None:
+    raw = metadata.get("origin")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return OriginInfo(**raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _to_response(record) -> DocumentResponse:
     return DocumentResponse(
         doc_id=record.doc_id,
@@ -83,6 +106,7 @@ def _to_response(record) -> DocumentResponse:
         chunk_count=record.chunk_count,
         metadata=record.metadata,
         updated_at=record.updated_at,
+        origin=_extract_origin(record.metadata),
     )
 
 
@@ -179,7 +203,12 @@ def build_router(service: RagifixService, auth: TokenAuth, default_top_k: int, m
         return QueryResponse(
             results=[
                 QueryResultItem(
-                    chunk_id=r.chunk_id, doc_id=r.doc_id, text=r.text, score=r.score, metadata=r.metadata
+                    chunk_id=r.chunk_id,
+                    doc_id=r.doc_id,
+                    text=r.text,
+                    score=r.score,
+                    metadata=r.metadata,
+                    origin=_extract_origin(r.metadata),
                 )
                 for r in results
             ]

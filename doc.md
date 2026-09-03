@@ -70,6 +70,14 @@ Le registre stocke :
 
 Usage principal : cleanup des chunks orphelins lors des mises à jour.
 
+Convention `metadata.origin` (optionnelle, posée par le producteur du
+document — typiquement ragifix-collector) : `{"kind": "https"|"file", "uri":
+"...", "label": "..."}`, le lien ou chemin le plus rapide vers le document
+source (ex: `webUrl` SharePoint, chemin local). ragifix la remonte telle
+quelle, typée, en champ `origin` sur `DocumentResponse` et sur chaque
+résultat de `POST /query` (`null` si absente ou invalide) — sans quoi elle
+resterait invisible dans le blob `metadata` générique.
+
 ### 5. API HTTP
 
 | Méthode | Route | Description |

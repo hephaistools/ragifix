@@ -7,6 +7,8 @@ les routes ne portent aucune logique métier, on teste donc ici leur façonnage
 
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -115,6 +117,24 @@ def test_put_success(build_service):
     assert body["doc_id"] == "doc1"
     assert body["extension"] == "txt"
     assert body["chunk_count"] >= 1
+    assert body["origin"] is None
+
+
+def test_put_with_origin_metadata(build_service):
+    service = build_service()
+    origin = {"kind": "https", "uri": "https://contoso.sharepoint.com/doc.pdf", "label": "doc.pdf"}
+    try:
+        client = _build_client(service)
+        resp = client.put(
+            "/documents/doc1",
+            params={"extension": "txt", "metadata": json.dumps({"origin": origin})},
+            content=b"this is a test document content that will be chunked",
+            headers=AUTH,
+        )
+    finally:
+        service.shutdown()
+    assert resp.status_code == 200
+    assert resp.json()["origin"] == origin
 
 
 def test_delete_missing(build_service):
@@ -187,3 +207,23 @@ def test_query_success(build_service):
         service.shutdown()
     assert resp.status_code == 200
     assert len(resp.json()["results"]) >= 1
+
+
+def test_query_returns_origin(build_service):
+    service = build_service()
+    origin = {"kind": "file", "uri": "file:///srv/docs/apples.txt", "label": "apples.txt"}
+    try:
+        client = _build_client(service)
+        client.put(
+            "/documents/doc1",
+            params={"extension": "txt", "metadata": json.dumps({"origin": origin})},
+            content=b"this document is about apples and oranges and fruits",
+            headers=AUTH,
+        )
+        resp = client.post("/query", json={"query": "apples", "top_k": 5}, headers=AUTH)
+    finally:
+        service.shutdown()
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) >= 1
+    assert results[0]["origin"] == origin
