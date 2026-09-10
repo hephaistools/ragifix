@@ -76,6 +76,15 @@ class InMemoryVectorStore:
         return results[:top_k]
 
 
+class FakeParserBackend:
+    """Backend de parsing fake : retourne le contenu décodé tel quel,
+    préfixé pour signaler qu'il est passé par ce backend (utile pour
+    distinguer ce chemin de TEXT_EXTENSIONS dans les assertions)."""
+
+    def parse(self, content: bytes, extension: str, filename: str) -> str:
+        return f"[fake-parsed:{extension}] {content.decode('utf-8', errors='replace')}"
+
+
 class SimpleChunker:
     """Chunker simple (découpage en morceaux de taille fixe), sans tiktoken.
 
@@ -109,13 +118,18 @@ def simple_chunker():
 
 
 @pytest.fixture
+def fake_parser():
+    return FakeParserBackend()
+
+
+@pytest.fixture
 def registry(tmp_path):
     return SqliteDocumentRegistry(str(tmp_path / "registry.db"))
 
 
 @pytest.fixture
-def build_service(fake_embedding, in_memory_vector_store, registry, simple_chunker):
+def build_service(fake_embedding, in_memory_vector_store, registry, simple_chunker, fake_parser):
     def _build() -> RagifixService:
-        return RagifixService(fake_embedding, in_memory_vector_store, registry, simple_chunker)
+        return RagifixService(fake_embedding, in_memory_vector_store, registry, simple_chunker, fake_parser)
 
     return _build

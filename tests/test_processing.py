@@ -36,6 +36,21 @@ def test_parse_document_unsupported_raises():
         parse_document(b"data", "zip")
 
 
+class _FakeParser:
+    def parse(self, content: bytes, extension: str, filename: str) -> str:
+        return f"parsed:{extension}:{filename}:{content.decode()}"
+
+
+def test_parse_document_delegates_rich_doc_to_parser():
+    text = parse_document(b"contenu", "docx", filename="doc1", parser=_FakeParser())
+    assert text == "parsed:docx:doc1:contenu"
+
+
+def test_parse_document_rich_doc_without_parser_raises():
+    with pytest.raises(ValueError):
+        parse_document(b"contenu", "docx")
+
+
 # -- TokenChunker ---------------------------------------------------------
 
 def test_chunker_empty_text():

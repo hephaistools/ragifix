@@ -82,7 +82,7 @@ git clone <url-du-dépôt> ragifix && cd ragifix
 
 python3 -m venv venv
 source venv/bin/activate
-pip install -e .
+pip install -e ".[docling]"   # ou ".[markitdown]" selon parsing.backend (voir config.example.yaml)
 
 cp config.example.yaml config.yaml   # reste à côté du code, hors /etc
 
@@ -147,10 +147,10 @@ curl -X POST http://127.0.0.1:8421/query \
 
 ## TODO
 
-- [ ] vérifier qu'on garde le chemin complet d'accès aux fichiers sources (lien sharepoint, chemin complet du dossier, etc).
+- [x] vérifier qu'on garde le chemin complet d'accès aux fichiers sources (lien sharepoint, chemin complet du dossier, etc).
 
 - [ ] ajouter un filtre basé sur la date des documents.
 - [ ] scinder en deux tokens : un pour l'écriture, un pour la lecture
-- [ ] ajouter le support d'un moteur plus léger pour le parsing des documents : markitdown ?.
+- [x] ajouter le support d'un moteur plus léger pour le parsing des documents : markitdown ?.
 
 - [ ] Que faudrait-il changer pour réussir à garder les droits sur les fichiers et restreindre l'accès aux fragments selon le client ?

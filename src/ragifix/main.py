@@ -22,6 +22,9 @@ from .config import AppConfig, ConfigError, load_config
 from .embedding.base import EmbeddingBackend
 from .embedding.fastembed_backend import FastEmbedBackend
 from .embedding.openai_compat_backend import OpenAICompatibleBackend
+from .parsing.base import DocumentParserBackend
+from .parsing.docling_backend import DoclingBackend
+from .parsing.markitdown_backend import MarkitdownBackend
 from .processing import build_chunker
 from .registry import build_registry
 from .routes import build_router
@@ -30,6 +33,26 @@ from .vectorstore.base import VectorStore
 from .vectorstore.milvus_backend import MilvusVectorStore
 
 logger = logging.getLogger(__name__)
+
+
+def build_parser_backend(config: AppConfig) -> DocumentParserBackend:
+    if config.parsing.backend == "docling":
+        try:
+            return DoclingBackend()
+        except ImportError as exc:
+            raise ConfigError(
+                "parsing.backend=docling mais le paquet 'docling' n'est pas installé "
+                "— installez ragifix[docling]"
+            ) from exc
+    if config.parsing.backend == "markitdown":
+        try:
+            return MarkitdownBackend(enable_plugins=config.parsing.markitdown.enable_plugins)
+        except ImportError as exc:
+            raise ConfigError(
+                "parsing.backend=markitdown mais le paquet 'markitdown' n'est pas installé "
+                "— installez ragifix[markitdown]"
+            ) from exc
+    raise ValueError(f"Backend de parsing inconnu: {config.parsing.backend}")
 
 
 def build_embedding_backend(config: AppConfig) -> EmbeddingBackend:
@@ -68,8 +91,9 @@ def create_app(config_path: str) -> FastAPI:
     vector_store = build_vector_store(config, dimension=embedding_backend.dimension)
     registry = build_registry(config.registry.backend, config.registry.sqlite.path)
     chunker = build_chunker(config.chunking.strategy, config.chunking.chunk_size, config.chunking.chunk_overlap)
+    parser = build_parser_backend(config)
 
-    service = RagifixService(embedding_backend, vector_store, registry, chunker)
+    service = RagifixService(embedding_backend, vector_store, registry, chunker, parser)
     auth = TokenAuth(expected_token=config.api.auth_token)
 
     @asynccontextmanager

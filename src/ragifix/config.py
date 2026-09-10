@@ -39,6 +39,25 @@ class ChunkingConfig(BaseModel):
 
 
 # ------------------------------------------------------------------------- #
+# Parsing
+# ------------------------------------------------------------------------- #
+
+class DoclingConfig(BaseModel):
+    """Rien à configurer pour l'instant — gardé pour homogénéité avec les
+    autres backends et pour une éventuelle extension future."""
+
+
+class MarkitdownConfig(BaseModel):
+    enable_plugins: bool = False
+
+
+class ParsingConfig(BaseModel):
+    backend: Literal["docling", "markitdown"] = "docling"
+    docling: DoclingConfig = Field(default_factory=DoclingConfig)
+    markitdown: MarkitdownConfig = Field(default_factory=MarkitdownConfig)
+
+
+# ------------------------------------------------------------------------- #
 # Embedding
 # ------------------------------------------------------------------------- #
 
@@ -146,6 +165,7 @@ class LoggingConfig(BaseModel):
 
 class AppConfig(BaseModel):
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
+    parsing: ParsingConfig = Field(default_factory=ParsingConfig)
     embedding: EmbeddingConfig
     vectorstore: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
     registry: RegistryConfig = Field(default_factory=RegistryConfig)

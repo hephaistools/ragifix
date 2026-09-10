@@ -32,7 +32,11 @@ case "$1" in
         echo "$PACKAGE: erreur — aucun fichier .whl trouvé dans $WHEEL_DIR" >&2
         exit 1
     fi
-    "$VENV/bin/pip" install --quiet "$WHEEL_FILE"
+    # [docling] : moteur de parsing par défaut (parsing.backend dans
+    # config.example.yaml). Si vous basculez vers parsing.backend=markitdown,
+    # installez aussi ce moteur manuellement :
+    #   $VENV/bin/pip install "markitdown[all]"
+    "$VENV/bin/pip" install --quiet "$WHEEL_FILE[docling]"
     chown -R "$PACKAGE:$PACKAGE" "$VENV"
 
     ln -sf "$VENV/bin/$PACKAGE" "/usr/bin/$PACKAGE"

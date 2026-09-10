@@ -11,6 +11,7 @@ from ragifix.config import (
     ConfigError,
     EmbeddingConfig,
     OpenAICompatConfig,
+    ParsingConfig,
     load_config,
 )
 
@@ -34,6 +35,23 @@ def test_chunking_overlap_greater_raises():
 def test_chunking_size_zero_raises():
     with pytest.raises(ValueError):
         ChunkingConfig(chunk_size=0)
+
+
+# -- Choix du backend de parsing ------------------------------------------
+
+def test_parsing_backend_defaults_to_docling():
+    cfg = ParsingConfig()
+    assert cfg.backend == "docling"
+
+
+def test_parsing_backend_markitdown_defaults():
+    cfg = ParsingConfig.model_validate({"backend": "markitdown"})
+    assert cfg.markitdown.enable_plugins is False
+
+
+def test_parsing_backend_unknown_raises():
+    with pytest.raises(ValueError):
+        ParsingConfig.model_validate({"backend": "unknown"})
 
 
 # -- Api host -------------------------------------------------------------
@@ -111,6 +129,7 @@ def test_app_config_valid():
     )
     assert cfg.embedding.backend == "fastembed"
     assert cfg.api.host == "127.0.0.1"
+    assert cfg.parsing.backend == "docling"
 
 
 def test_load_config_missing(tmp_path):

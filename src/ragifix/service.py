@@ -23,6 +23,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from .embedding.base import EmbeddingBackend
+from .parsing.base import DocumentParserBackend
 from .processing import parse_document
 from .registry import DocumentRecord, DocumentRegistry
 from .vectorstore.base import SearchResult, VectorChunk, VectorStore
@@ -49,11 +50,13 @@ class RagifixService:
         vector_store: VectorStore,
         registry: DocumentRegistry,
         chunker,
+        parser: DocumentParserBackend,
     ):
         self._embedding = embedding_backend
         self._vector_store = vector_store
         self._registry = registry
         self._chunker = chunker
+        self._parser = parser
         # Un seul worker : sérialise strictement tous les accès Milvus/embedding.
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ragifix-worker")
 
@@ -67,7 +70,7 @@ class RagifixService:
         return await self._run(self._ingest_document_sync, doc_id, content, extension, metadata)
 
     def _ingest_document_sync(self, doc_id: str, content: bytes, extension: str, metadata: dict) -> DocumentRecord:
-        text = parse_document(content, extension, filename=doc_id)
+        text = parse_document(content, extension, filename=doc_id, parser=self._parser)
         text_chunks = self._chunker.chunk(text)
 
         if not text_chunks:

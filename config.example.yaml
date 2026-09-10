@@ -14,6 +14,15 @@ chunking:
   chunk_size: 512
   chunk_overlap: 64
 
+parsing:
+  # Moteur pour les formats "riches" (docx, pptx, xlsx, html) — le texte
+  # brut et le PDF ne sont pas concernés (voir README).
+  # Nécessite l'extra pip correspondant : ragifix[docling] ou ragifix[markitdown].
+  backend: docling                # docling | markitdown
+
+  markitdown:
+    enable_plugins: false
+
 embedding:
   backend: fastembed              # fastembed (local) | openai_compatible (distant)
 

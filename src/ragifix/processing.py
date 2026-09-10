@@ -1,9 +1,12 @@
 """Parsing et chunking des documents.
 
-Regroupés volontairement dans un seul fichier : le rôle de ragifix ici est
-de mettre en relation des outils déjà existants (pymupdf4llm, docling,
-tiktoken), pas de recréer une architecture modulaire pour des briques qui
-n'en ont pas besoin.
+Le parsing des formats « riches » (docx, pptx, xlsx, html) est délégué à un
+DocumentParserBackend pluggable (voir ragifix.parsing), au même principe que
+l'embedding ou la base vectorielle : le backend actif est choisi par
+configuration (parsing.backend), pas ici. Le texte brut et le PDF restent en
+revanche traités directement dans ce module : ils n'ont pas besoin d'un
+moteur pluggable (une seule implémentation possible, aucune alternative à
+sélectionner).
 
 Le parsing prend en entrée un flux d'octets déjà entièrement en mémoire
 (jamais un chemin de fichier ni un objet spoolé sur disque) — cohérent avec
@@ -14,17 +17,18 @@ autre appelant de l'API.
 
 from __future__ import annotations
 
-import io
 import logging
 from dataclasses import dataclass
+
+from .parsing.base import DocumentParserBackend
 
 logger = logging.getLogger(__name__)
 
 TEXT_EXTENSIONS = {"txt", "md"}
 PDF_EXTENSIONS = {"pdf"}
-DOCLING_EXTENSIONS = {"docx", "pptx", "xlsx", "html", "htm"}
+RICH_DOC_EXTENSIONS = {"docx", "pptx", "xlsx", "html", "htm"}
 
-ALL_SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PDF_EXTENSIONS | DOCLING_EXTENSIONS
+ALL_SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PDF_EXTENSIONS | RICH_DOC_EXTENSIONS
 
 
 class UnsupportedFileTypeError(Exception):
@@ -36,8 +40,15 @@ class UnsupportedFileTypeError(Exception):
     """
 
 
-def parse_document(content: bytes, extension: str, filename: str = "document") -> str:
-    """Parse un document en mémoire et retourne son texte (ou markdown)."""
+def parse_document(
+    content: bytes, extension: str, filename: str = "document", parser: DocumentParserBackend | None = None
+) -> str:
+    """Parse un document en mémoire et retourne son texte (ou markdown).
+
+    `parser` est requis uniquement pour les extensions de RICH_DOC_EXTENSIONS
+    (voir ragifix.main.build_parser_backend) — inutile pour le texte brut ou
+    le PDF, qui n'en dépendent pas.
+    """
     ext = extension.lower().lstrip(".")
 
     if ext in TEXT_EXTENSIONS:
@@ -46,8 +57,10 @@ def parse_document(content: bytes, extension: str, filename: str = "document") -
     if ext in PDF_EXTENSIONS:
         return _parse_pdf(content)
 
-    if ext in DOCLING_EXTENSIONS:
-        return _parse_with_docling(content, ext, filename)
+    if ext in RICH_DOC_EXTENSIONS:
+        if parser is None:
+            raise ValueError(f"Un DocumentParserBackend est requis pour parser '.{ext}'")
+        return parser.parse(content, ext, filename)
 
     raise UnsupportedFileTypeError(
         f"Extension '.{ext}' non supportée par ce pipeline. "
@@ -66,17 +79,6 @@ def _parse_pdf(content: bytes) -> str:
         return pymupdf4llm.to_markdown(doc)
     finally:
         doc.close()
-
-
-def _parse_with_docling(content: bytes, ext: str, filename: str) -> str:
-    from docling.datamodel.base_models import DocumentStream
-    from docling.document_converter import DocumentConverter
-
-    name = filename if filename.lower().endswith(f".{ext}") else f"{filename}.{ext}"
-    stream = DocumentStream(name=name, stream=io.BytesIO(content))
-    converter = DocumentConverter()
-    result = converter.convert(stream)
-    return result.document.export_to_markdown()
 
 
 # --------------------------------------------------------------------------- #
