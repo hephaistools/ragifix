@@ -11,6 +11,7 @@ from ragifix.config import (
     ConfigError,
     EmbeddingConfig,
     OpenAICompatConfig,
+    VectorStoreConfig,
     load_config,
 )
 
@@ -101,6 +102,24 @@ def test_openai_compatible_ok():
         }
     )
     assert cfg.openai_compatible is not None
+
+
+# -- Choix du backend de base vectorielle ---------------------------------
+
+def test_vectorstore_backend_defaults_to_milvus():
+    cfg = VectorStoreConfig()
+    assert cfg.backend == "milvus"
+
+
+def test_vectorstore_backend_faiss_accepted():
+    cfg = VectorStoreConfig.model_validate({"backend": "faiss"})
+    assert cfg.backend == "faiss"
+    assert cfg.faiss.index_path == "/var/lib/ragifix/faiss_index"
+
+
+def test_vectorstore_backend_unknown_raises():
+    with pytest.raises(ValueError):
+        VectorStoreConfig.model_validate({"backend": "unknown"})
 
 
 # -- AppConfig + load_config ----------------------------------------------

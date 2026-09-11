@@ -27,6 +27,7 @@ from .registry import build_registry
 from .routes import build_router
 from .service import RagifixService
 from .vectorstore.base import VectorStore
+from .vectorstore.faiss_backend import FaissVectorStore
 from .vectorstore.milvus_backend import MilvusVectorStore
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,8 @@ def build_vector_store(config: AppConfig, dimension: int) -> VectorStore:
             host=vs.milvus.host,
             port=vs.milvus.port,
         )
+    if vs.backend == "faiss":
+        return FaissVectorStore(dimension=dimension, index_path=vs.faiss.index_path)
     raise ValueError(f"Backend de base vectorielle inconnu: {vs.backend}")
 
 

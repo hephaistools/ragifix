@@ -85,9 +85,14 @@ class MilvusConfig(BaseModel):
     collection_name: str = "ragifix_documents"
 
 
+class FaissConfig(BaseModel):
+    index_path: str = "/var/lib/ragifix/faiss_index"
+
+
 class VectorStoreConfig(BaseModel):
-    backend: Literal["milvus"] = "milvus"
+    backend: Literal["milvus", "faiss"] = "milvus"
     milvus: MilvusConfig = Field(default_factory=MilvusConfig)
+    faiss: FaissConfig = Field(default_factory=FaissConfig)
 
 
 # ------------------------------------------------------------------------- #

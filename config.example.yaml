@@ -26,7 +26,7 @@ embedding:
     model: text-embedding-3-small
 
 vectorstore:
-  backend: milvus
+  backend: milvus                 # milvus | faiss
 
   milvus:
     # IMPORTANT : en mode "lite", ce fichier ne peut être ouvert que par un SEUL process à la fois. Ne jamais lancer deux instances de ragifix pointant vers le même lite_path. Si besoin, utiliser mode=server avec un vrai serveur Milvus (host/port).
@@ -35,6 +35,13 @@ vectorstore:
     # host: localhost
     # port: 19530
     collection_name: ragifix_documents
+
+  faiss:
+    # Backend 100% local, persisté sur disque (pas de mode "server"). Comme
+    # pour Milvus en mode "lite" : un SEUL process à la fois sur ce chemin.
+    # Filtres de recherche (filters) : best-effort uniquement (pas de vrai
+    # filtre pré-recherche comme avec Milvus).
+    index_path: /var/lib/ragifix/faiss_index
 
 registry:
   # Registre des documents indexés (doc_id -> chunk_ids/extension/metadata).
