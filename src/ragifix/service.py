@@ -18,7 +18,7 @@ défense en profondeur, pas la protection principale.
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import dataclasses
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
@@ -27,20 +27,13 @@ from .parsing.base import DocumentParserBackend
 from .processing import parse_document
 from .registry import DocumentRecord, DocumentRegistry
 from .vectorstore.base import SearchResult, VectorChunk, VectorStore
+from .vectorstore.base import make_chunk_id  # noqa: F401  (ré-export, voir vectorstore.base)
 
 logger = logging.getLogger(__name__)
 
 
 class EmptyDocumentError(Exception):
     """Le document ne produit aucun chunk exploitable après parsing."""
-
-
-def make_chunk_id(doc_id: str, index: int) -> str:
-    """ID de chunk déterministe (doc_id + index) — permet un upsert
-    idempotent plutôt qu'un delete-then-insert (qui laisserait une fenêtre
-    de temps où le document n'existerait plus du tout dans la base)."""
-    digest = hashlib.sha256(f"{doc_id}::{index}".encode("utf-8")).hexdigest()
-    return digest[:32]
 
 
 class RagifixService:
@@ -95,7 +88,8 @@ class RagifixService:
         self._vector_store.upsert(chunks)
         self._vector_store.delete_by_doc_id(doc_id, keep_chunk_ids=new_chunk_ids)
 
-        return self._registry.upsert(doc_id, chunk_ids=new_chunk_ids, extension=extension, metadata=metadata)
+        record = self._registry.upsert(doc_id, chunk_ids=new_chunk_ids)
+        return dataclasses.replace(record, metadata=metadata)
 
     # -- Suppression ------------------------------------------------------
 
@@ -118,10 +112,22 @@ class RagifixService:
     # -- Listing ------------------------------------------------------
 
     async def get_document(self, doc_id: str) -> DocumentRecord | None:
-        return await self._run(self._registry.get, doc_id)
+        return await self._run(self._get_document_sync, doc_id)
 
-    async def list_documents(self, prefix: str | None = None) -> list[DocumentRecord]:
-        return await self._run(self._registry.list, prefix)
+    def _get_document_sync(self, doc_id: str) -> DocumentRecord | None:
+        record = self._registry.get(doc_id)
+        if record is None:
+            return None
+        metadata = self._vector_store.get_document_metadata([doc_id]).get(doc_id, {})
+        return dataclasses.replace(record, metadata=metadata)
+
+    async def list_documents(self) -> list[DocumentRecord]:
+        return await self._run(self._list_documents_sync)
+
+    def _list_documents_sync(self) -> list[DocumentRecord]:
+        records = self._registry.list()
+        metadata_by_doc_id = self._vector_store.get_document_metadata([r.doc_id for r in records])
+        return [dataclasses.replace(r, metadata=metadata_by_doc_id.get(r.doc_id, {})) for r in records]
 
     # -- Sources ------------------------------------------------------
 

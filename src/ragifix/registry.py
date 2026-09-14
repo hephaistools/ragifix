@@ -2,11 +2,17 @@
 
 Aucune notion de cursor de synchronisation ici (c'est entièrement l'affaire
 de ragifix-collector, côté client de l'API). Ce registre retient, pour
-chaque doc_id connu, les chunk_ids qui lui appartiennent dans la base
-vectorielle (nécessaire pour nettoyer les chunks orphelins lors d'une mise
-à jour), son extension, ses métadonnées, et la date de dernière mise à
-jour — ce qui permet aussi de répondre à "quels documents sont indexés ?"
-sans avoir à interroger la base vectorielle elle-même.
+chaque doc_id connu, uniquement les chunk_ids qui lui appartiennent dans
+la base vectorielle (nécessaire pour nettoyer les chunks orphelins lors
+d'une mise à jour) et la date de dernière mise à jour — ce qui permet
+aussi de répondre à "quels documents sont indexés ?" sans avoir à
+interroger la base vectorielle elle-même.
+
+`metadata` (qui inclut désormais `extension`) ne vit plus ici : elle est
+stockée uniquement dans la base vectorielle (dupliquée par chunk), lue via
+`VectorStore.get_document_metadata`. `DocumentRecord.metadata` reste un
+champ du dataclass mais il est rempli par `RagifixService`, jamais par ce
+registre (toujours `{}` en sortie d'ici).
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -24,9 +30,8 @@ from typing import Protocol, runtime_checkable
 class DocumentRecord:
     doc_id: str
     chunk_ids: list[str]
-    extension: str
-    metadata: dict
     updated_at: str  # ISO 8601 UTC
+    metadata: dict = field(default_factory=dict)
 
     @property
     def chunk_count(self) -> int:
@@ -37,13 +42,13 @@ class DocumentRecord:
 class DocumentRegistry(Protocol):
     def get(self, doc_id: str) -> DocumentRecord | None: ...
 
-    def upsert(self, doc_id: str, chunk_ids: list[str], extension: str, metadata: dict) -> DocumentRecord: ...
+    def upsert(self, doc_id: str, chunk_ids: list[str]) -> DocumentRecord: ...
 
     def delete(self, doc_id: str) -> bool:
         """Retourne True si le document existait (et a été supprimé)."""
         ...
 
-    def list(self, prefix: str | None = None) -> list[DocumentRecord]: ...
+    def list(self) -> list[DocumentRecord]: ...
 
     def set_source(self, name: str, description: str, enabled: bool) -> None: ...
 
@@ -75,8 +80,6 @@ class SqliteDocumentRegistry:
                 CREATE TABLE IF NOT EXISTS documents (
                     doc_id TEXT PRIMARY KEY,
                     chunk_ids TEXT NOT NULL,
-                    extension TEXT NOT NULL,
-                    metadata TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -94,61 +97,46 @@ class SqliteDocumentRegistry:
 
     @staticmethod
     def _row_to_record(row: tuple) -> DocumentRecord:
-        doc_id, chunk_ids, extension, metadata, updated_at = row
+        doc_id, chunk_ids, updated_at = row
         return DocumentRecord(
             doc_id=doc_id,
             chunk_ids=json.loads(chunk_ids),
-            extension=extension,
-            metadata=json.loads(metadata),
             updated_at=updated_at,
         )
 
     def get(self, doc_id: str) -> DocumentRecord | None:
         with self._lock:
             row = self._conn.execute(
-                "SELECT doc_id, chunk_ids, extension, metadata, updated_at "
-                "FROM documents WHERE doc_id = ?",
+                "SELECT doc_id, chunk_ids, updated_at FROM documents WHERE doc_id = ?",
                 (doc_id,),
             ).fetchone()
             return self._row_to_record(row) if row else None
 
-    def upsert(self, doc_id: str, chunk_ids: list[str], extension: str, metadata: dict) -> DocumentRecord:
+    def upsert(self, doc_id: str, chunk_ids: list[str]) -> DocumentRecord:
         updated_at = datetime.now(timezone.utc).isoformat()
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO documents (doc_id, chunk_ids, extension, metadata, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO documents (doc_id, chunk_ids, updated_at)
+                VALUES (?, ?, ?)
                 ON CONFLICT(doc_id) DO UPDATE SET
                     chunk_ids = excluded.chunk_ids,
-                    extension = excluded.extension,
-                    metadata = excluded.metadata,
                     updated_at = excluded.updated_at
                 """,
-                (doc_id, json.dumps(chunk_ids), extension, json.dumps(metadata, ensure_ascii=False), updated_at),
+                (doc_id, json.dumps(chunk_ids), updated_at),
             )
-        return DocumentRecord(
-            doc_id=doc_id, chunk_ids=chunk_ids, extension=extension, metadata=metadata, updated_at=updated_at
-        )
+        return DocumentRecord(doc_id=doc_id, chunk_ids=chunk_ids, updated_at=updated_at)
 
     def delete(self, doc_id: str) -> bool:
         with self._lock, self._conn:
             cursor = self._conn.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
             return cursor.rowcount > 0
 
-    def list(self, prefix: str | None = None) -> list[DocumentRecord]:
+    def list(self) -> list[DocumentRecord]:
         with self._lock:
-            if prefix:
-                escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                rows = self._conn.execute(
-                    "SELECT doc_id, chunk_ids, extension, metadata, updated_at FROM documents "
-                    "WHERE doc_id LIKE ? ESCAPE '\\' ORDER BY doc_id",
-                    (f"{escaped}%",),
-                ).fetchall()
-            else:
-                rows = self._conn.execute(
-                    "SELECT doc_id, chunk_ids, extension, metadata, updated_at FROM documents ORDER BY doc_id"
-                ).fetchall()
+            rows = self._conn.execute(
+                "SELECT doc_id, chunk_ids, updated_at FROM documents ORDER BY doc_id"
+            ).fetchall()
             return [self._row_to_record(row) for row in rows]
 
     def close(self) -> None:

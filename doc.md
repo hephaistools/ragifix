@@ -29,11 +29,13 @@
 │  └─ openai_compat   │  - API OpenAI compatible           │
 ├─────────────────────────────────────────────────────────┤
 │  registry.py        │  Registre SQLite                   │
-│                     │  - doc_id → chunk_ids              │
-│                     │  - Métadonnées (extension, date)   │
+│                     │  - doc_id → chunk_ids, updated_at  │
 │                     │  - Sources (nom, description)      │
 └─────────────────────────────────────────────────────────┘
 ```
+
+`metadata` (extension incluse) ne vit **que** dans Milvus, dupliquée par
+chunk — voir point 4 ci-dessous.
 
 ## Points clés
 
@@ -62,30 +64,36 @@ Quand un document est mis à jour :
 
 Sans cette étape, chaque mise à jour créerait des chunks orphelins qui polluent la base.
 
-### 4. Registre SQLite
+### 4. Où vit quelle donnée : registre SQLite vs Milvus
 
-Le registre stocke :
-- `doc_id` → `chunk_ids`, `extension`, `metadata`, `updated_at`
-- `sources` → `name`, `description`, `enabled`, `updated_at`
+Le registre SQLite ne stocke que ce qui sert au cleanup des chunks
+orphelins et au listing des doc_id connus :
+- `documents` : `doc_id` → `chunk_ids`, `updated_at`
+- `sources` : `name`, `description`, `enabled`, `updated_at`
 
-Usage principal : cleanup des chunks orphelins lors des mises à jour.
+Tout le reste (`metadata`, `extension` incluse) ne vit que dans Milvus,
+dupliqué sur chaque chunk du document. Pour répondre à `GET /documents` et
+`GET /documents/{doc_id}` sans recherche vectorielle, `RagifixService`
+combine la liste des `doc_id` du registre avec un point-lookup Milvus sur
+le chunk d'index 0 de chaque document (`VectorStore.get_document_metadata`,
+`chunk_id` étant déterministe — voir point 2).
 
-Convention `metadata.origin` (optionnelle, posée par le producteur du
-document — typiquement ragifix-collector) : `{"kind": "https"|"file", "uri":
-"...", "label": "..."}`, le lien ou chemin le plus rapide vers le document
-source (ex: `webUrl` SharePoint, chemin local). ragifix la remonte telle
-quelle, typée, en champ `origin` sur `DocumentResponse` et sur chaque
-résultat de `POST /query` (`null` si absente ou invalide) — sans quoi elle
-resterait invisible dans le blob `metadata` générique.
+`metadata` est un objet JSON à plat, formalisé côté producteur (voir
+[`ragifix-collector/doc.md`](../ragifix-collector/doc.md) pour la liste des
+clés). Seule contrainte imposée par `ragifix` : la clé `extension`
+(extension du fichier, sans le point) est **obligatoire** — `PUT
+/documents/{doc_id}` répond `400` si elle est absente. Le reste est libre
+et renvoyé tel quel dans `DocumentResponse.metadata` et dans chaque
+résultat de `POST /query`.
 
 ### 5. API HTTP
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| `PUT` | `/documents/{doc_id}` | Indexer/mettre à jour un document |
+| `PUT` | `/documents/{doc_id}` | Indexer/mettre à jour un document (`metadata` doit inclure `extension`) |
 | `DELETE` | `/documents/{doc_id}` | Supprimer un document |
 | `GET` | `/documents/{doc_id}` | Détail d'un document |
-| `GET` | `/documents` | Liste des documents (avec prefix) |
+| `GET` | `/documents` | Liste des documents (sans pagination pour le moment) |
 | `POST` | `/query` | Recherche sémantique |
 | `GET` | `/sources` | Lister les sources |
 | `POST` | `/sources` | Mettre à jour les sources |
@@ -129,6 +137,6 @@ ragifix --config ./config.yaml
 ## Limitations connues
 
 - Milvus Lite : un seul process à la fois
-- Pas de filtrage par source dans `POST /query` (TODO)
-- Pas de pagination (TODO)
+- Pas de filtrage par source ni par `metadata` dans `POST /query`/`GET /documents` (TODO)
+- Pas de pagination sur `GET /documents` (TODO)
 - Registry en SQLite (pas de backend distant pour le moment)

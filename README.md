@@ -113,21 +113,21 @@ Toutes les routes sauf `/health` nécessitent l'en-tête `Authorization: Bearer 
 
 | Méthode | Route | Description |
 |---|---|---|
-| `PUT` | `/documents/{doc_id}?extension=...&metadata=...` | Ajoute ou met à jour un document. Corps de requête = contenu brut (`application/octet-stream`), jamais de multipart. |
+| `PUT` | `/documents/{doc_id}?metadata=...` | Ajoute ou met à jour un document. Corps de requête = contenu brut (`application/octet-stream`), jamais de multipart. |
 | `DELETE` | `/documents/{doc_id}` | Supprime un document (204, ou 404 s'il n'existait pas). |
 | `GET` | `/documents/{doc_id}` | Détail d'un document indexé. |
-| `GET` | `/documents?prefix=...` | Liste les documents indexés. |
+| `GET` | `/documents` | Liste les documents indexés (pas de pagination pour l'instant — voir TODO). |
 | `POST` | `/query` | `{"query": "...", "top_k": 5, "filters": {...}}` → chunks pertinents. |
 | `GET` | `/health` | Sans authentification. |
 
 `doc_id` accepte `/` et `:`.
 
-`metadata` peut inclure un champ optionnel `origin` — `{"kind": "https"|"file", "uri": "...", "label": "..."}`, le lien ou chemin le plus rapide vers le document source (ex: lien SharePoint, chemin local). S'il est présent, il est renvoyé tel quel, typé, dans le champ `origin` de `DocumentResponse` et de chaque résultat de `POST /query` (`null` sinon).
+`metadata` (JSON) doit obligatoirement contenir la clé `extension` (extension du fichier sans le point, ex: `pdf`, `md`, `txt`) — `400` sinon. Le reste de `metadata` est libre (voir [`doc.md`](doc.md) pour le détail des clés formalisées côté `ragifix-collector`). `metadata` est renvoyé tel quel dans `DocumentResponse` et dans chaque résultat de `POST /query`.
 
 Exemple :
 
 ```bash
-curl -X PUT "http://127.0.0.1:8421/documents/notes:readme.md?extension=md" \
+curl -X PUT "http://127.0.0.1:8421/documents/notes:readme.md?metadata=%7B%22extension%22%3A%22md%22%7D" \
   -H "Authorization: Bearer $RAGIFIX_API_TOKEN" \
   -H "Content-Type: application/octet-stream" \
   --data-binary @README.md
@@ -148,9 +148,12 @@ curl -X POST http://127.0.0.1:8421/query \
 ## TODO
 
 - [x] vérifier qu'on garde le chemin complet d'accès aux fichiers sources (lien sharepoint, chemin complet du dossier, etc).
+- [x] ajouter le support d'un moteur plus léger pour le parsing des documents : markitdown ?.
+- [x] formaliser le schéma `metadata` (clés à plat, `extension` inclus) et le déplacer hors du registre SQLite (vit uniquement dans Milvus).
 
+- [ ] ajouter la pagination sur `GET /documents` (aujourd'hui, tous les documents sont retournés en une fois).
+- [ ] ajouter des filtres sur `GET /documents` et `POST /query` : par source(s), et par clé(s)/valeur(s) de `metadata`.
 - [ ] ajouter un filtre basé sur la date des documents.
 - [ ] scinder en deux tokens : un pour l'écriture, un pour la lecture
-- [x] ajouter le support d'un moteur plus léger pour le parsing des documents : markitdown ?.
 
 - [ ] Que faudrait-il changer pour réussir à garder les droits sur les fichiers et restreindre l'accès aux fragments selon le client ?

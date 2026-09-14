@@ -1,7 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+
+
+def make_chunk_id(doc_id: str, index: int) -> str:
+    """ID de chunk déterministe (doc_id + index) — permet un upsert
+    idempotent plutôt qu'un delete-then-insert (qui laisserait une fenêtre
+    de temps où le document n'existerait plus du tout dans la base).
+
+    Le fait que ce soit déterministe permet aussi de retrouver le chunk
+    d'index 0 d'un doc_id sans requête préalable (point-lookup), utile
+    pour lire les métadonnées d'un document sans recherche vectorielle."""
+    digest = hashlib.sha256(f"{doc_id}::{index}".encode("utf-8")).hexdigest()
+    return digest[:32]
 
 
 @dataclass
@@ -56,3 +69,9 @@ class VectorStore(Protocol):
     def search(
         self, vector: list[float], top_k: int, filters: dict | None = None
     ) -> list[SearchResult]: ...
+
+    def get_document_metadata(self, doc_ids: list[str]) -> dict[str, dict]:
+        """Métadonnées de chaque doc_id connu, lues depuis son chunk d'index 0
+        (point-lookup, sans recherche vectorielle). Les doc_id absents de la
+        base ne figurent pas dans le résultat."""
+        ...

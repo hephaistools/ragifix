@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from .base import SearchResult, VectorChunk
+from .base import SearchResult, VectorChunk, make_chunk_id
 
 
 def _escape(value: str) -> str:
@@ -116,3 +116,17 @@ class MilvusVectorStore:
                 )
             )
         return output
+
+    def get_document_metadata(self, doc_ids: list[str]) -> dict[str, dict]:
+        if not doc_ids:
+            return {}
+        chunk_ids = [make_chunk_id(doc_id, 0) for doc_id in doc_ids]
+        rows = self._client.get(
+            collection_name=self._collection_name, ids=chunk_ids, output_fields=["chunk_id", "metadata"]
+        )
+        metadata_by_chunk_id = {row["chunk_id"]: json.loads(row.get("metadata") or "{}") for row in rows}
+        return {
+            doc_id: metadata_by_chunk_id[chunk_id]
+            for doc_id, chunk_id in zip(doc_ids, chunk_ids)
+            if chunk_id in metadata_by_chunk_id
+        }
