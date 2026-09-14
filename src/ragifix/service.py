@@ -26,7 +26,7 @@ from .embedding.base import EmbeddingBackend
 from .parsing.base import DocumentParserBackend
 from .processing import parse_document
 from .registry import DocumentRecord, DocumentRegistry
-from .vectorstore.base import SearchResult, VectorChunk, VectorStore
+from .vectorstore.base import SearchResult, VectorChunk, VectorStore, matches_filters
 from .vectorstore.base import make_chunk_id  # noqa: F401  (ré-export, voir vectorstore.base)
 
 logger = logging.getLogger(__name__)
@@ -121,13 +121,16 @@ class RagifixService:
         metadata = self._vector_store.get_document_metadata([doc_id]).get(doc_id, {})
         return dataclasses.replace(record, metadata=metadata)
 
-    async def list_documents(self) -> list[DocumentRecord]:
-        return await self._run(self._list_documents_sync)
+    async def list_documents(self, filters: dict | None = None) -> list[DocumentRecord]:
+        return await self._run(self._list_documents_sync, filters)
 
-    def _list_documents_sync(self) -> list[DocumentRecord]:
+    def _list_documents_sync(self, filters: dict | None = None) -> list[DocumentRecord]:
         records = self._registry.list()
         metadata_by_doc_id = self._vector_store.get_document_metadata([r.doc_id for r in records])
-        return [dataclasses.replace(r, metadata=metadata_by_doc_id.get(r.doc_id, {})) for r in records]
+        enriched = [dataclasses.replace(r, metadata=metadata_by_doc_id.get(r.doc_id, {})) for r in records]
+        if not filters:
+            return enriched
+        return [r for r in enriched if matches_filters(r.metadata, filters)]
 
     # -- Sources ------------------------------------------------------
 

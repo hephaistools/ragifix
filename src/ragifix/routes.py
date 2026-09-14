@@ -40,10 +40,23 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentResponse]
 
 
+class QueryFilters(BaseModel):
+    """Filtres de metadata combinés en AND. `source`/`extension`/`filename_glob`
+    acceptent une valeur unique ou une liste (OR intra-clé). `filename_glob`
+    est un motif `fnmatch` (ex. `*rapport*.pdf`). `modified_after`/`modified_before`
+    bornent `modified_at` (ISO 8601), valeur unique uniquement."""
+
+    source: str | list[str] | None = None
+    extension: str | list[str] | None = None
+    filename_glob: str | list[str] | None = None
+    modified_after: str | None = None
+    modified_before: str | None = None
+
+
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
     top_k: int | None = Field(default=None, ge=1, le=100)
-    filters: dict | None = None
+    filters: QueryFilters | None = None
 
 
 class QueryResultItem(BaseModel):
@@ -161,15 +174,29 @@ def build_router(service: RagifixService, auth: TokenAuth, default_top_k: int, m
         return _to_response(record)
 
     @router.get("/documents", response_model=DocumentListResponse, dependencies=[Depends(auth)])
-    async def list_documents() -> DocumentListResponse:
-        records = await service.list_documents()
+    async def list_documents(
+        source: list[str] | None = Query(default=None),
+        extension: list[str] | None = Query(default=None),
+        filename_glob: list[str] | None = Query(default=None),
+        modified_after: str | None = Query(default=None),
+        modified_before: str | None = Query(default=None),
+    ) -> DocumentListResponse:
+        filters = QueryFilters(
+            source=source,
+            extension=extension,
+            filename_glob=filename_glob,
+            modified_after=modified_after,
+            modified_before=modified_before,
+        )
+        records = await service.list_documents(filters=filters.model_dump(exclude_none=True))
         return DocumentListResponse(documents=[_to_response(r) for r in records])
 
     @router.post("/query", response_model=QueryResponse, dependencies=[Depends(auth)])
     async def query(body: QueryRequest) -> QueryResponse:
         top_k = body.top_k or default_top_k
+        filters = body.filters.model_dump(exclude_none=True) if body.filters else None
         try:
-            results = await service.query(body.query, top_k=top_k, filters=body.filters)
+            results = await service.query(body.query, top_k=top_k, filters=filters)
         except Exception:
             logger.exception("Échec de la requête d'interrogation")
             raise HTTPException(status_code=500, detail="Erreur interne lors de la recherche")

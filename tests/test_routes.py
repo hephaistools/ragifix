@@ -264,3 +264,100 @@ def test_query_returns_metadata(build_service):
     results = resp.json()["results"]
     assert len(results) >= 1
     assert results[0]["metadata"] == {"extension": "txt", "source": "sharepoint"}
+
+
+def test_query_with_scalar_filter_excludes_non_matching(build_service):
+    service = build_service()
+    try:
+        client = _build_client(service)
+        client.put(
+            "/documents/doc1",
+            params=_metadata_params("txt", source="sharepoint"),
+            content=b"apples",
+            headers=AUTH,
+        )
+        client.put(
+            "/documents/doc2",
+            params=_metadata_params("txt", source="datas_locales"),
+            content=b"apples too",
+            headers=AUTH,
+        )
+        resp = client.post(
+            "/query",
+            json={"query": "apples", "top_k": 10, "filters": {"source": "sharepoint"}},
+            headers=AUTH,
+        )
+    finally:
+        service.shutdown()
+    assert resp.status_code == 200
+    doc_ids = {r["doc_id"] for r in resp.json()["results"]}
+    assert doc_ids == {"doc1"}
+
+
+def test_query_with_list_filter_matches_any(build_service):
+    service = build_service()
+    try:
+        client = _build_client(service)
+        client.put(
+            "/documents/doc1",
+            params=_metadata_params("txt", source="sharepoint"),
+            content=b"apples",
+            headers=AUTH,
+        )
+        client.put(
+            "/documents/doc2",
+            params=_metadata_params("txt", source="datas_locales"),
+            content=b"apples too",
+            headers=AUTH,
+        )
+        client.put(
+            "/documents/doc3",
+            params=_metadata_params("txt", source="autre"),
+            content=b"apples again",
+            headers=AUTH,
+        )
+        resp = client.post(
+            "/query",
+            json={
+                "query": "apples",
+                "top_k": 10,
+                "filters": {"source": ["sharepoint", "datas_locales"]},
+            },
+            headers=AUTH,
+        )
+    finally:
+        service.shutdown()
+    assert resp.status_code == 200
+    doc_ids = {r["doc_id"] for r in resp.json()["results"]}
+    assert doc_ids == {"doc1", "doc2"}
+
+
+def test_list_documents_with_source_filter(build_service):
+    service = build_service()
+    try:
+        client = _build_client(service)
+        client.put("/documents/doc1", params=_metadata_params("txt", source="sharepoint"), content=b"one", headers=AUTH)
+        client.put("/documents/doc2", params=_metadata_params("txt", source="datas_locales"), content=b"two", headers=AUTH)
+        resp = client.get("/documents", params={"source": "sharepoint"}, headers=AUTH)
+    finally:
+        service.shutdown()
+    assert resp.status_code == 200
+    doc_ids = {d["doc_id"] for d in resp.json()["documents"]}
+    assert doc_ids == {"doc1"}
+
+
+def test_list_documents_with_repeated_source_param_matches_any(build_service):
+    service = build_service()
+    try:
+        client = _build_client(service)
+        client.put("/documents/doc1", params=_metadata_params("txt", source="sharepoint"), content=b"one", headers=AUTH)
+        client.put("/documents/doc2", params=_metadata_params("txt", source="datas_locales"), content=b"two", headers=AUTH)
+        client.put("/documents/doc3", params=_metadata_params("txt", source="autre"), content=b"three", headers=AUTH)
+        resp = client.get(
+            "/documents", params=[("source", "sharepoint"), ("source", "datas_locales")], headers=AUTH
+        )
+    finally:
+        service.shutdown()
+    assert resp.status_code == 200
+    doc_ids = {d["doc_id"] for d in resp.json()["documents"]}
+    assert doc_ids == {"doc1", "doc2"}

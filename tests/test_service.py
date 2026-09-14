@@ -103,6 +103,22 @@ def test_list_documents(build_service):
         service.shutdown()
 
 
+def test_list_documents_with_filters(build_service):
+    service = build_service()
+    try:
+        asyncio.run(service.ingest_document("notes/a", b"content one here", "txt", {"source": "sharepoint"}))
+        asyncio.run(service.ingest_document("notes/b", b"content two here", "txt", {"source": "datas_locales"}))
+        asyncio.run(service.ingest_document("other/c", b"content three here", "txt", {"source": "autre"}))
+
+        scalar = asyncio.run(service.list_documents(filters={"source": "sharepoint"}))
+        assert {r.doc_id for r in scalar} == {"notes/a"}
+
+        as_list = asyncio.run(service.list_documents(filters={"source": ["sharepoint", "datas_locales"]}))
+        assert {r.doc_id for r in as_list} == {"notes/a", "notes/b"}
+    finally:
+        service.shutdown()
+
+
 def test_sources(build_service):
     service = build_service()
     try:

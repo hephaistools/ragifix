@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from typing import Protocol, runtime_checkable
 
 
@@ -15,6 +16,47 @@ def make_chunk_id(doc_id: str, index: int) -> str:
     pour lire les métadonnées d'un document sans recherche vectorielle."""
     digest = hashlib.sha256(f"{doc_id}::{index}".encode("utf-8")).hexdigest()
     return digest[:32]
+
+
+def _as_list(value) -> list:
+    return value if isinstance(value, list) else [value]
+
+
+def matches_filters(metadata: dict, filters: dict | None) -> bool:
+    """Vrai si `metadata` satisfait tous les filtres (combinés en AND).
+
+    Clés reconnues dans `filters` :
+    - `source`, `extension` : valeur scalaire (égalité) ou liste de valeurs
+      (vrai si `metadata[clé]` est dans la liste — OR intra-clé).
+    - `filename_glob` : motif `fnmatch` (ex. `*rapport*.pdf`) ou liste de
+      motifs (OR intra-clé), comparé à `metadata["filename"]`.
+    - `modified_after` / `modified_before` : bornes (incluses) sur
+      `metadata["modified_at"]`, comparées lexicographiquement (chaînes
+      ISO 8601). Valeur scalaire uniquement (pas de liste).
+    """
+    if not filters:
+        return True
+
+    for key in ("source", "extension"):
+        value = filters.get(key)
+        if value is not None and metadata.get(key) not in _as_list(value):
+            return False
+
+    filename_glob = filters.get("filename_glob")
+    if filename_glob is not None:
+        filename = metadata.get("filename", "")
+        if not any(fnmatch(filename, pattern) for pattern in _as_list(filename_glob)):
+            return False
+
+    modified_at = metadata.get("modified_at")
+    modified_after = filters.get("modified_after")
+    if modified_after is not None and (modified_at is None or modified_at < modified_after):
+        return False
+    modified_before = filters.get("modified_before")
+    if modified_before is not None and (modified_at is None or modified_at > modified_before):
+        return False
+
+    return True
 
 
 @dataclass
