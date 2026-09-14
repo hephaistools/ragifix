@@ -86,6 +86,28 @@ clés). Seule contrainte imposée par `ragifix` : la clé `extension`
 et renvoyé tel quel dans `DocumentResponse.metadata` et dans chaque
 résultat de `POST /query`.
 
+### 4bis. Filtres sur `POST /query` et `GET /documents`
+
+`filters` (clés `source`, `extension`, `filename_glob`, `modified_after`,
+`modified_before`, combinées en `AND` ; `source`/`extension`/`filename_glob`
+acceptent une valeur unique ou une liste — `OR` intra-clé) est normalisé et
+appliqué par `ragifix.vectorstore.base.matches_filters`, utilisé à deux
+endroits :
+- `RagifixService._list_documents_sync` : filtrage entièrement en Python
+  (la metadata de tous les documents est déjà chargée pour construire la
+  réponse).
+- `MilvusVectorStore.search` : `source`/`extension`/`modified_after`/
+  `modified_before` sont poussés dans l'expression de filtre Milvus
+  (`source`/`extension` lus depuis le champ `metadata` de type `JSON` ;
+  `modified_at` est **dupliqué en champ scalaire `VARCHAR`** au niveau de ce
+  backend uniquement — un champ JSON ne permet pas de comparaisons
+  `>=`/`<=` fiables. Ce détail est invisible du reste du programme :
+  `VectorStore.get_document_metadata` ne renvoie jamais ce champ dupliqué).
+  `filename_glob` n'est pas exprimable en filtre Milvus fiable : la
+  recherche sur-échantillonne (`min(top_k * 5, 200)`) puis post-filtre en
+  Python via `matches_filters`, ce qui peut renvoyer moins de `top_k`
+  résultats si le(s) motif(s) sont très restrictifs.
+
 ### 5. API HTTP
 
 | Méthode | Route | Description |
@@ -93,8 +115,8 @@ résultat de `POST /query`.
 | `PUT` | `/documents/{doc_id}` | Indexer/mettre à jour un document (`metadata` doit inclure `extension`) |
 | `DELETE` | `/documents/{doc_id}` | Supprimer un document |
 | `GET` | `/documents/{doc_id}` | Détail d'un document |
-| `GET` | `/documents` | Liste des documents (sans pagination pour le moment) |
-| `POST` | `/query` | Recherche sémantique |
+| `GET` | `/documents` | Liste des documents, filtrable (voir point 4bis) — sans pagination pour le moment |
+| `POST` | `/query` | Recherche sémantique, filtrable (voir point 4bis) |
 | `GET` | `/sources` | Lister les sources |
 | `POST` | `/sources` | Mettre à jour les sources |
 | `GET` | `/health` | Health check (pas d'auth) |
@@ -137,6 +159,6 @@ ragifix --config ./config.yaml
 ## Limitations connues
 
 - Milvus Lite : un seul process à la fois
-- Pas de filtrage par source ni par `metadata` dans `POST /query`/`GET /documents` (TODO)
 - Pas de pagination sur `GET /documents` (TODO)
 - Registry en SQLite (pas de backend distant pour le moment)
+- `filters.filename_glob` sur `POST /query` peut renvoyer moins de `top_k` résultats (sur-échantillonnage + post-filtre Python, voir point 4bis)

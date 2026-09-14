@@ -116,8 +116,8 @@ Toutes les routes sauf `/health` nécessitent l'en-tête `Authorization: Bearer 
 | `PUT` | `/documents/{doc_id}?metadata=...` | Ajoute ou met à jour un document. Corps de requête = contenu brut (`application/octet-stream`), jamais de multipart. |
 | `DELETE` | `/documents/{doc_id}` | Supprime un document (204, ou 404 s'il n'existait pas). |
 | `GET` | `/documents/{doc_id}` | Détail d'un document indexé. |
-| `GET` | `/documents` | Liste les documents indexés (pas de pagination pour l'instant — voir TODO). |
-| `POST` | `/query` | `{"query": "...", "top_k": 5, "filters": {...}}` → chunks pertinents. |
+| `GET` | `/documents?source=...&extension=...&filename_glob=...&modified_after=...&modified_before=...` | Liste les documents indexés, filtrables (voir "Filtres" ci-dessous). Pas de pagination pour l'instant — voir TODO. |
+| `POST` | `/query` | `{"query": "...", "top_k": 5, "filters": {...}}` → chunks pertinents, filtrables (voir "Filtres" ci-dessous). |
 | `GET` | `/health` | Sans authentification. |
 
 `doc_id` accepte `/` et `:`.
@@ -138,6 +138,33 @@ curl -X POST http://127.0.0.1:8421/query \
   -d '{"query": "comment installer ragifix ?", "top_k": 3}'
 ```
 
+### Filtres
+
+`POST /query` (corps JSON, clé `filters`) et `GET /documents` (query params du même nom) acceptent les filtres suivants, combinés en `AND` :
+
+| Clé | Type | Sémantique |
+|---|---|---|
+| `source` | `str` ou liste de `str` | Égalité stricte sur `metadata.source` (le nom de la source configurée côté `ragifix-collector`, pas le type de connecteur) ; liste = `OR`. |
+| `extension` | `str` ou liste de `str` | Égalité stricte sur `metadata.extension` ; liste = `OR`. |
+| `filename_glob` | motif `fnmatch` (ex: `*rapport*.pdf`) ou liste de motifs | Comparé à `metadata.filename` ; liste = `OR`. |
+| `modified_after` / `modified_before` | `str` (ISO 8601) | Bornes (incluses) sur `metadata.modified_at`, valeur unique uniquement. |
+
+Exemples :
+
+```bash
+curl -X POST http://127.0.0.1:8421/query \
+  -H "Authorization: Bearer $RAGIFIX_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "procédure de remboursement", "filters": {"source": ["sharepoint", "datas_locales"], "extension": "pdf"}}'
+
+curl -G "http://127.0.0.1:8421/documents" \
+  -H "Authorization: Bearer $RAGIFIX_API_TOKEN" \
+  --data-urlencode "source=sharepoint" \
+  --data-urlencode "modified_after=2025-01-01"
+```
+
+Note d'implémentation : `filename_glob` n'est pas exprimable en filtre Milvus fiable (JSON path + wildcard) — `POST /query` sur-échantillonne puis post-filtre en Python, ce qui peut renvoyer moins de `top_k` résultats si le(s) motif(s) sont très restrictifs. `GET /documents` n'a pas cette limitation (filtré sur l'ensemble déjà chargé en mémoire).
+
 ## Exploitation
 
 - Logs : `journalctl -u ragifix -f` (systemd) ou `docker logs -f ragifix`.
@@ -151,9 +178,9 @@ curl -X POST http://127.0.0.1:8421/query \
 - [x] ajouter le support d'un moteur plus léger pour le parsing des documents : markitdown ?.
 - [x] formaliser le schéma `metadata` (clés à plat, `extension` inclus) et le déplacer hors du registre SQLite (vit uniquement dans Milvus).
 
+- [x] ajouter des filtres sur `GET /documents` et `POST /query` : par source(s), extension(s), motif de nom de fichier, et plage de date de modification (voir "Filtres" ci-dessus).
+
 - [ ] ajouter la pagination sur `GET /documents` (aujourd'hui, tous les documents sont retournés en une fois).
-- [ ] ajouter des filtres sur `GET /documents` et `POST /query` : par source(s), et par clé(s)/valeur(s) de `metadata`.
-- [ ] ajouter un filtre basé sur la date des documents.
 - [ ] scinder en deux tokens : un pour l'écriture, un pour la lecture
 
 - [ ] Que faudrait-il changer pour réussir à garder les droits sur les fichiers et restreindre l'accès aux fragments selon le client ?
