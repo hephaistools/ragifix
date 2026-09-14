@@ -1,6 +1,6 @@
 [project]
 name = "ragifix"
-version = "0.2.0"
+version = "0.3.0"
 description = "Service RAG auto-porté : ingestion, suppression et interrogation de documents via API HTTP locale."
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
