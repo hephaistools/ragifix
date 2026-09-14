@@ -1,3 +1,13 @@
+ragifix (0.3.0) unstable; urgency=medium
+
+  * Ajout des filtres de metadata sur POST /query et GET /documents
+    (source, extension, filename_glob, plage de dates modified_at).
+  * Champ metadata Milvus passé en JSON natif (auparavant VARCHAR).
+  * Correction : création automatique du dossier parent de milvus_lite.db
+    s'il n'existe pas (mode lite).
+
+ -- Ragifix Maintainers <ragifix@example.com>  Mon, 14 Sep 2026 17:34:00 +0000
+
 ragifix (0.2.0) unstable; urgency=medium
 
   * Ajout des pipelines CI (gate pytest) et Release (build .deb + GitHub Release).

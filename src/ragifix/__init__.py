@@ -5,4 +5,4 @@ suppression et l'interrogation de documents. Aucune notion de "source" :
 c'est le rôle de ragifix-collector (ou de tout autre client de cette API).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
