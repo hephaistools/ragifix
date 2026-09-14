@@ -29,24 +29,11 @@ logger = logging.getLogger(__name__)
 # Schémas
 # --------------------------------------------------------------------------- #
 
-class OriginInfo(BaseModel):
-    """Localisateur le plus rapide pour ouvrir le document source (lien
-    SharePoint, chemin local, etc.) — voir metadata["origin"], normalisé ici
-    en champ de premier niveau pour ne pas obliger les clients à connaître la
-    structure interne du blob metadata."""
-
-    kind: str
-    uri: str
-    label: str = ""
-
-
 class DocumentResponse(BaseModel):
     doc_id: str
-    extension: str
     chunk_count: int
     metadata: dict
     updated_at: str
-    origin: OriginInfo | None = None
 
 
 class DocumentListResponse(BaseModel):
@@ -65,7 +52,6 @@ class QueryResultItem(BaseModel):
     text: str
     score: float
     metadata: dict
-    origin: OriginInfo | None = None
 
 
 class QueryResponse(BaseModel):
@@ -89,24 +75,12 @@ class SetSourceRequest(BaseModel):
     enabled: bool = True
 
 
-def _extract_origin(metadata: dict) -> OriginInfo | None:
-    raw = metadata.get("origin")
-    if not isinstance(raw, dict):
-        return None
-    try:
-        return OriginInfo(**raw)
-    except (TypeError, ValueError):
-        return None
-
-
 def _to_response(record) -> DocumentResponse:
     return DocumentResponse(
         doc_id=record.doc_id,
-        extension=record.extension,
         chunk_count=record.chunk_count,
         metadata=record.metadata,
         updated_at=record.updated_at,
-        origin=_extract_origin(record.metadata),
     )
 
 
@@ -134,8 +108,7 @@ def build_router(service: RagifixService, auth: TokenAuth, default_top_k: int, m
     async def put_document(
         doc_id: str,
         request: Request,
-        extension: str = Query(..., description="Extension du fichier (sans le point), ex: pdf, docx, txt"),
-        metadata: str | None = Query(default=None, description="Métadonnées, encodées en JSON"),
+        metadata: str | None = Query(default=None, description="Métadonnées, encodées en JSON (doit inclure 'extension')"),
     ) -> DocumentResponse:
         content_length = request.headers.get("content-length")
         if content_length is not None and int(content_length) > max_bytes:
@@ -154,6 +127,9 @@ def build_router(service: RagifixService, auth: TokenAuth, default_top_k: int, m
             raise HTTPException(status_code=400, detail="Corps de requête vide")
 
         meta_dict = _parse_metadata_param(metadata)
+        extension = meta_dict.get("extension")
+        if not extension:
+            raise HTTPException(status_code=400, detail="La clé 'extension' est requise dans metadata")
 
         try:
             record = await service.ingest_document(doc_id, content, extension, meta_dict)
@@ -185,10 +161,8 @@ def build_router(service: RagifixService, auth: TokenAuth, default_top_k: int, m
         return _to_response(record)
 
     @router.get("/documents", response_model=DocumentListResponse, dependencies=[Depends(auth)])
-    async def list_documents(
-        prefix: str | None = Query(default=None, description="Filtre les doc_id commençant par ce préfixe"),
-    ) -> DocumentListResponse:
-        records = await service.list_documents(prefix=prefix)
+    async def list_documents() -> DocumentListResponse:
+        records = await service.list_documents()
         return DocumentListResponse(documents=[_to_response(r) for r in records])
 
     @router.post("/query", response_model=QueryResponse, dependencies=[Depends(auth)])
@@ -208,7 +182,6 @@ def build_router(service: RagifixService, auth: TokenAuth, default_top_k: int, m
                     text=r.text,
                     score=r.score,
                     metadata=r.metadata,
-                    origin=_extract_origin(r.metadata),
                 )
                 for r in results
             ]

@@ -27,6 +27,10 @@ def _build_client(service, max_mb=50) -> TestClient:
     return TestClient(app)
 
 
+def _metadata_params(extension: str, **extra) -> dict:
+    return {"metadata": json.dumps({"extension": extension, **extra})}
+
+
 def test_health_no_auth(build_service):
     service = build_service()
     try:
@@ -63,7 +67,22 @@ def test_put_metadata_invalid_json(build_service):
     try:
         client = _build_client(service)
         resp = client.put(
-            "/documents/doc1", params={"extension": "txt", "metadata": "not-json"}, headers=AUTH
+            "/documents/doc1", params={"metadata": "not-json"}, content=b"data", headers=AUTH
+        )
+    finally:
+        service.shutdown()
+    assert resp.status_code == 400
+
+
+def test_put_missing_extension_in_metadata(build_service):
+    service = build_service()
+    try:
+        client = _build_client(service)
+        resp = client.put(
+            "/documents/doc1",
+            params={"metadata": json.dumps({"src": "test"})},
+            content=b"data",
+            headers=AUTH,
         )
     finally:
         service.shutdown()
@@ -74,7 +93,7 @@ def test_put_unsupported_type(build_service):
     service = build_service()
     try:
         client = _build_client(service)
-        resp = client.put("/documents/doc1", params={"extension": "zip"}, content=b"data", headers=AUTH)
+        resp = client.put("/documents/doc1", params=_metadata_params("zip"), content=b"data", headers=AUTH)
     finally:
         service.shutdown()
     assert resp.status_code == 415
@@ -84,7 +103,7 @@ def test_put_empty_body(build_service):
     service = build_service()
     try:
         client = _build_client(service)
-        resp = client.put("/documents/doc1", params={"extension": "txt"}, content=b"", headers=AUTH)
+        resp = client.put("/documents/doc1", params=_metadata_params("txt"), content=b"", headers=AUTH)
     finally:
         service.shutdown()
     assert resp.status_code == 400
@@ -94,7 +113,7 @@ def test_put_too_large(build_service):
     service = build_service()
     try:
         client = _build_client(service, max_mb=0.00001)
-        resp = client.put("/documents/doc1", params={"extension": "txt"}, content=b"x" * 40, headers=AUTH)
+        resp = client.put("/documents/doc1", params=_metadata_params("txt"), content=b"x" * 40, headers=AUTH)
     finally:
         service.shutdown()
     assert resp.status_code == 413
@@ -106,7 +125,7 @@ def test_put_success(build_service):
         client = _build_client(service)
         resp = client.put(
             "/documents/doc1",
-            params={"extension": "txt"},
+            params=_metadata_params("txt"),
             content=b"this is a test document content that will be chunked",
             headers=AUTH,
         )
@@ -115,26 +134,28 @@ def test_put_success(build_service):
     assert resp.status_code == 200
     body = resp.json()
     assert body["doc_id"] == "doc1"
-    assert body["extension"] == "txt"
     assert body["chunk_count"] >= 1
-    assert body["origin"] is None
+    assert body["metadata"] == {"extension": "txt"}
 
 
-def test_put_with_origin_metadata(build_service):
+def test_put_with_metadata(build_service):
     service = build_service()
-    origin = {"kind": "https", "uri": "https://contoso.sharepoint.com/doc.pdf", "label": "doc.pdf"}
     try:
         client = _build_client(service)
         resp = client.put(
             "/documents/doc1",
-            params={"extension": "txt", "metadata": json.dumps({"origin": origin})},
+            params=_metadata_params("txt", source="sharepoint", filename="doc.pdf"),
             content=b"this is a test document content that will be chunked",
             headers=AUTH,
         )
     finally:
         service.shutdown()
     assert resp.status_code == 200
-    assert resp.json()["origin"] == origin
+    assert resp.json()["metadata"] == {
+        "extension": "txt",
+        "source": "sharepoint",
+        "filename": "doc.pdf",
+    }
 
 
 def test_delete_missing(build_service):
@@ -153,7 +174,7 @@ def test_delete_success(build_service):
         client = _build_client(service)
         client.put(
             "/documents/doc1",
-            params={"extension": "txt"},
+            params=_metadata_params("txt"),
             content=b"content to delete afterwards",
             headers=AUTH,
         )
@@ -167,14 +188,31 @@ def test_list_documents(build_service):
     service = build_service()
     try:
         client = _build_client(service)
-        client.put("/documents/notes/a", params={"extension": "md"}, content=b"one", headers=AUTH)
-        client.put("/documents/notes/b", params={"extension": "md"}, content=b"two", headers=AUTH)
+        client.put("/documents/notes/a", params=_metadata_params("md"), content=b"one", headers=AUTH)
+        client.put("/documents/notes/b", params=_metadata_params("md"), content=b"two", headers=AUTH)
         resp = client.get("/documents", headers=AUTH)
     finally:
         service.shutdown()
     assert resp.status_code == 200
     doc_ids = {d["doc_id"] for d in resp.json()["documents"]}
     assert doc_ids == {"notes/a", "notes/b"}
+
+
+def test_get_document_returns_metadata(build_service):
+    service = build_service()
+    try:
+        client = _build_client(service)
+        client.put(
+            "/documents/doc1",
+            params=_metadata_params("txt", source="sharepoint"),
+            content=b"content for a single document lookup",
+            headers=AUTH,
+        )
+        resp = client.get("/documents/doc1", headers=AUTH)
+    finally:
+        service.shutdown()
+    assert resp.status_code == 200
+    assert resp.json()["metadata"] == {"extension": "txt", "source": "sharepoint"}
 
 
 def test_sources_flow(build_service):
@@ -198,7 +236,7 @@ def test_query_success(build_service):
         client = _build_client(service)
         client.put(
             "/documents/doc1",
-            params={"extension": "txt"},
+            params=_metadata_params("txt"),
             content=b"this document is about apples and oranges and fruits",
             headers=AUTH,
         )
@@ -209,14 +247,13 @@ def test_query_success(build_service):
     assert len(resp.json()["results"]) >= 1
 
 
-def test_query_returns_origin(build_service):
+def test_query_returns_metadata(build_service):
     service = build_service()
-    origin = {"kind": "file", "uri": "file:///srv/docs/apples.txt", "label": "apples.txt"}
     try:
         client = _build_client(service)
         client.put(
             "/documents/doc1",
-            params={"extension": "txt", "metadata": json.dumps({"origin": origin})},
+            params=_metadata_params("txt", source="sharepoint"),
             content=b"this document is about apples and oranges and fruits",
             headers=AUTH,
         )
@@ -226,4 +263,4 @@ def test_query_returns_origin(build_service):
     assert resp.status_code == 200
     results = resp.json()["results"]
     assert len(results) >= 1
-    assert results[0]["origin"] == origin
+    assert results[0]["metadata"] == {"extension": "txt", "source": "sharepoint"}

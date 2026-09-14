@@ -26,7 +26,6 @@ def test_ingest_document(build_service):
         content = b"this is a sufficiently long test document to be split into several chunks"
         record = asyncio.run(service.ingest_document("doc1", content, "txt", {"src": "test"}))
         assert record.doc_id == "doc1"
-        assert record.extension == "txt"
         assert record.chunk_count >= 1
         assert record.metadata == {"src": "test"}
     finally:
@@ -52,6 +51,17 @@ def test_ingest_empty_raises(build_service):
     try:
         with pytest.raises(EmptyDocumentError):
             asyncio.run(service.ingest_document("empty", b"", "txt", {}))
+    finally:
+        service.shutdown()
+
+
+def test_get_document_returns_metadata_from_vector_store(build_service):
+    service = build_service()
+    try:
+        asyncio.run(service.ingest_document("doc1", b"some content here to chunk", "txt", {"src": "x"}))
+        record = asyncio.run(service.get_document("doc1"))
+        assert record is not None
+        assert record.metadata == {"src": "x"}
     finally:
         service.shutdown()
 
@@ -89,8 +99,6 @@ def test_list_documents(build_service):
         asyncio.run(service.ingest_document("other/c", b"content three here", "txt", {}))
         all_docs = asyncio.run(service.list_documents())
         assert {r.doc_id for r in all_docs} == {"notes/a", "notes/b", "other/c"}
-        prefix_docs = asyncio.run(service.list_documents(prefix="notes/"))
-        assert {r.doc_id for r in prefix_docs} == {"notes/a", "notes/b"}
     finally:
         service.shutdown()
 

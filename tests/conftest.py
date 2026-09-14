@@ -19,7 +19,7 @@ if str(_SRC) not in sys.path:
 
 from ragifix.registry import SqliteDocumentRegistry  # noqa: E402
 from ragifix.service import RagifixService  # noqa: E402
-from ragifix.vectorstore.base import SearchResult, VectorChunk  # noqa: E402
+from ragifix.vectorstore.base import SearchResult, VectorChunk, make_chunk_id  # noqa: E402
 
 
 class FakeEmbeddingBackend:
@@ -74,6 +74,14 @@ class InMemoryVectorStore:
             for chunk in self._chunks.values()
         ]
         return results[:top_k]
+
+    def get_document_metadata(self, doc_ids):
+        result = {}
+        for doc_id in doc_ids:
+            chunk = self._chunks.get(make_chunk_id(doc_id, 0))
+            if chunk is not None:
+                result[doc_id] = dict(chunk.metadata)
+        return result
 
 
 class FakeParserBackend:
