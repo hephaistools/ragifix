@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from .base import SearchResult, VectorChunk, _as_list, make_chunk_id, matches_filters
 
 
@@ -31,6 +33,11 @@ class MilvusVectorStore:
         port: int = 19530,
     ):
         from pymilvus import DataType, MilvusClient
+
+        if mode == "lite":
+            # MilvusClient crée le fichier/dossier lite_path lui-même, mais pas
+            # son arborescence parente — même précaution que registry.py.
+            Path(lite_path).parent.mkdir(parents=True, exist_ok=True)
 
         uri = lite_path if mode == "lite" else f"http://{host}:{port}"
         self._client = MilvusClient(uri=uri)
