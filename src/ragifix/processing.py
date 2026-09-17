@@ -1,7 +1,7 @@
 """Parsing et chunking des documents.
 
 Regroupés volontairement dans un seul fichier : le rôle de ragifix ici est
-de mettre en relation des outils déjà existants (pymupdf4llm, docling,
+de mettre en relation des outils déjà existants (pymupdf4llm,
 tiktoken), pas de recréer une architecture modulaire pour des briques qui
 n'en ont pas besoin.
 
@@ -14,7 +14,6 @@ autre appelant de l'API.
 
 from __future__ import annotations
 
-import io
 import logging
 from dataclasses import dataclass
 
@@ -22,9 +21,8 @@ logger = logging.getLogger(__name__)
 
 TEXT_EXTENSIONS = {"txt", "md"}
 PDF_EXTENSIONS = {"pdf"}
-DOCLING_EXTENSIONS = {"docx", "pptx", "xlsx", "html", "htm"}
 
-ALL_SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PDF_EXTENSIONS | DOCLING_EXTENSIONS
+ALL_SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PDF_EXTENSIONS
 
 
 class UnsupportedFileTypeError(Exception):
@@ -46,9 +44,6 @@ def parse_document(content: bytes, extension: str, filename: str = "document") -
     if ext in PDF_EXTENSIONS:
         return _parse_pdf(content)
 
-    if ext in DOCLING_EXTENSIONS:
-        return _parse_with_docling(content, ext, filename)
-
     raise UnsupportedFileTypeError(
         f"Extension '.{ext}' non supportée par ce pipeline. "
         "Ce projet ne fait ni OCR ni speech-to-text : pour des images ou de "
@@ -66,17 +61,6 @@ def _parse_pdf(content: bytes) -> str:
         return pymupdf4llm.to_markdown(doc)
     finally:
         doc.close()
-
-
-def _parse_with_docling(content: bytes, ext: str, filename: str) -> str:
-    from docling.datamodel.base_models import DocumentStream
-    from docling.document_converter import DocumentConverter
-
-    name = filename if filename.lower().endswith(f".{ext}") else f"{filename}.{ext}"
-    stream = DocumentStream(name=name, stream=io.BytesIO(content))
-    converter = DocumentConverter()
-    result = converter.convert(stream)
-    return result.document.export_to_markdown()
 
 
 # --------------------------------------------------------------------------- #
