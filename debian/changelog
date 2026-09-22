@@ -1,12 +1,18 @@
 ragifix (0.3.0) unstable; urgency=medium
 
+  * Moteur de parsing au choix : docling (défaut) ou markitdown
+    (parsing.backend, extra ragifix[markitdown]).
+  * Schéma metadata formalisé. Il ne vit plus dans le registre SQLite
+    (doc_id, chunk_ids, updated_at seulement) mais dans Milvus, en JSON
+    natif. La clé extension est obligatoire dans metadata. Le filtre
+    prefix de GET /documents est retiré.
   * Ajout des filtres de metadata sur POST /query et GET /documents
     (source, extension, filename_glob, plage de dates modified_at).
-  * Champ metadata Milvus passé en JSON natif (auparavant VARCHAR).
   * Correction : création automatique du dossier parent de milvus_lite.db
     s'il n'existe pas (mode lite).
+  * La CI lance aussi pytest sur chaque push vers dev.
 
- -- Ragifix Maintainers <ragifix@example.com>  Mon, 14 Sep 2026 17:34:00 +0000
+ -- Ragifix Maintainers <ragifix@example.com>  Tue, 22 Sep 2026 15:34:00 +0000
 
 ragifix (0.2.0) unstable; urgency=medium
 
