@@ -42,24 +42,27 @@ curl http://127.0.0.1:8421/health
 
 ## Installation via paquet .deb
 
-Le paquet se construit depuis ce dépôt (il n'est pas publié sur un dépôt apt) :
-
+1. **Télécharger le `.deb`** sur la page release... ou générer vous-même le `.deb` :
 ```bash
 git clone <url-du-dépôt> ragifix && cd ragifix
 
 sudo apt-get install -y devscripts debhelper python3-venv python3-pip
 dpkg-buildpackage -us -uc -b
-
-sudo apt install -y ../ragifix_0.1.0-1_all.deb
 ```
 
-L'installation (script `postinst`) construit un environnement virtuel Python dans `/opt/ragifix/venv` et y installe les dépendances **depuis PyPI**.
+2. Puis **l'installer** via `apt` :
+```bash
+sudo apt install -y ../ragifix_0.3.0_all.deb
+```
+
+L'installation (script `postinst`) construit un environnement virtuel Python dans `/opt/ragifix/venv` et y installe les dépendances.
 
 Le paquet crée :
 - un utilisateur système dédié `ragifix`
 - `/etc/ragifix/config.yaml` et `/etc/ragifix/ragifix.env`, pré-remplis depuis les fichiers d'exemple (à adapter avant de démarrer)
 - une unité systemd `ragifix.service` (activée mais pas démarrée)
 
+3. **Configurer** :
 ```bash
 sudo nano /etc/ragifix/config.yaml       # adapter la configuration
 sudo nano /etc/ragifix/ragifix.env       # renseigner les secrets
@@ -68,8 +71,7 @@ sudo systemctl status ragifix
 journalctl -u ragifix -f
 ```
 
-Désinstallation :
-
+**Pour désinstaller** :
 ```bash
 sudo apt remove ragifix     # conserve /etc/ragifix et /var/lib/ragifix
 sudo apt purge ragifix      # supprime tout, y compris la configuration
@@ -103,7 +105,7 @@ Un seul fichier YAML (voir `config.example.yaml` pour la référence complète e
 
 Points de configuration à connaître :
 - `api.host` doit rester `127.0.0.1` (validé au chargement, refusé sinon).
-- `vectorstore.milvus.mode: lite` (par défaut) : **un seul process `ragifix` à la fois** ne doit ouvrir ce fichier. Ne jamais lancer deux instances (ni plusieurs workers) pointant vers le même `lite_path`. Pour plusieurs clients concurrents, utiliser `mode: server` avec un vrai serveur Milvus (`host`/`port`).
+- `vectorstore.milvus.mode: lite` (par défaut) : un seul process `ragifix` à la fois peut ouvrir ce fichier. Ne jamais lancer deux instances (ni plusieurs workers) pointant vers le même `lite_path`. Pour plusieurs clients concurrents, utiliser `mode: server` avec un vrai serveur Milvus (`host`/`port`).
 - `embedding.backend: fastembed` télécharge le modèle au premier usage (mis en cache ensuite). En environnement sans accès sortant à `huggingface.co`, pré-peupler ce cache avant la mise en prod.
 - Le chunking (`chunking.*`) utilise `tiktoken`, qui télécharge son fichier d'encodage au premier usage depuis `openaipublic.blob.core.windows.net` (mis en cache ensuite via `TIKTOKEN_CACHE_DIR`) — même remarque en environnement restreint.
 
@@ -184,3 +186,14 @@ Note d'implémentation : `filename_glob` n'est pas exprimable en filtre Milvus f
 - [ ] scinder en deux tokens : un pour l'écriture, un pour la lecture
 
 - [ ] Que faudrait-il changer pour réussir à garder les droits sur les fichiers et restreindre l'accès aux fragments selon le client ?
+
+- [ ] Passage à l'échelle (rien n'est fait). Forme visée : un Milvus en `mode: server`, un registre Postgres partagé, plusieurs process ragifix derrière un répartiteur de charge. Points à avoir en tête le jour où on le fait :
+  - Le `ThreadPoolExecutor` à un worker dans `RagifixService` sérialise tout (ingestion, suppression, recherche, listing), quel que soit le mode Milvus. Le retirer dès que `mode` vaut `server`, sinon chaque replica reste mono-requête et une ingestion bloque les recherches sur ce process.
+  - SQLite est un fichier local, un seul process. Le connecteur Postgres implémente `DocumentRegistry` (`documents` : `doc_id`, `chunk_ids`, `updated_at` ; `sources`). Ne pas partager le fichier SQLite.
+  - Verrou par `doc_id` (advisory lock Postgres) autour de l'ingestion et de la suppression. Le nettoyage des chunks orphelins interroge Milvus par `doc_id` : deux écritures concurrentes du même document peuvent s'effacer mutuellement. Les documents différents avancent en parallèle. Les lectures n'ont pas besoin de ce verrou.
+  - `api.host` est refusé hors de `127.0.0.1`. Derrière un répartiteur, chaque replica doit pouvoir écouter sur le réseau privé.
+  - Même modèle d'embedding et même dimension sur tous les replicas (la collection est créée avec cette dimension).
+  - Recherches : n'importe quel replica. Écritures : n'importe quel replica une fois le verrou par `doc_id` en place.
+  - Deux pools du même binaire (ingestion / recherche) évitent qu'un parsing lourd occupe un slot de recherche.
+  - Monter d'abord le nombre de replicas ragifix. N'ajouter des nœuds de requête Milvus que si la recherche est le goulot. Ne pas multiplier les collections.
+  - `GET /documents` charge tout d'un coup (pagination : autre entrée de ce TODO). Plus de replicas ne corrige pas ça.
